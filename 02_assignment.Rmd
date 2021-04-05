@@ -9,7 +9,7 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-#knitr::opts_chunk$set(echo = TRUE, message=FALSE, warning=FALSE)
+knitr::opts_chunk$set(echo = TRUE, message=FALSE, warning=FALSE)
 ```
 
 ```{r libraries}
@@ -41,6 +41,8 @@ From now on, GitHub should be part of your routine when doing assignments. I rec
 
 **Task**: When you are finished with the assignment, post a link below to the GitHub repo for the assignment. If you want to post it to your personal website, that's ok (not required). Make sure the link goes to a spot in the repo where I can easily find this assignment. For example, if you have a website with a blog and post the assignment as a blog post, link to the post's folder in the repo. As an example, I've linked to my GitHub stacking material [here](https://github.com/llendway/ads_website/tree/master/_posts/2021-03-22-stacking).
 
+[link](https://github.com/francos1998/adv_2)
+
 ## Modeling
 
 Before jumping into these problems, you should read through (and follow along with!) the [model stacking](https://advanced-ds-in-r.netlify.app/posts/2021-03-22-stacking/) and [global model interpretation](https://advanced-ds-in-r.netlify.app/posts/2021-03-24-imlglobal/) tutorials on the Course Materials tab of the course website.
@@ -53,9 +55,119 @@ The outcome we are interested in predicting is `Class`. And according to the dat
 
 1. Explore the data, concentrating on examining distributions of variables and examining missing values. 
 
+Quantitative variables
+
+
+```{r}
+lending_club %>% 
+  select(where(is.numeric)) %>% 
+  pivot_longer(cols = everything(),
+               names_to = "variable", 
+               values_to = "value") %>% 
+  ggplot(aes(x = value)) +
+  geom_histogram() +
+  facet_wrap(vars(variable), 
+             scales = "free")
+```
+
+>I can see that the number of accounts on which the borrower is now delinquent (accNowDelinq) has few obersvations for certain levels therefore I could group them into two categories. I also see that the distribution of the majority of plots is skewed to the right. It also seems like the past-due amount owed for the accounts on which the borrower is now delinquent (delinq_amnt) has only values on 0, it is a 0 variance variable. The variable delinq2yrs also seems to have only few observations for some levels so we could group them into two categories. Revol util has a normal distribution. And whether the loan was paid on time. 
+
+```{r}
+lending_club %>% 
+  select(delinq_amnt, acc_now_delinq, delinq_2yrs) %>% 
+  pivot_longer(cols = everything(),
+               names_to = "variable", 
+               values_to = "value") %>% 
+  ggplot(aes(x = value)) +
+  geom_histogram() +
+  facet_wrap(vars(variable), 
+             scales = "free")
+  
+
+```
+
+>After observing closer some of the variables previously mentioned I notices that delinq_amoung and acc_now_delinq are variables with almost 0 variance. I will not use them to create my model considering that they aren't informative. On the other hand, delinq_2yrs is a variable that could we could group into two groups. 
+
+Categorical variables:
+```{r}
+lending_club %>% 
+  select(where(is.factor)) 
+```
+
+>There seem to be 6 categorical variables. The number of payments on the loan. Assigned loan subgrade. The state provided by the borrower in the loan application. An Indicator if the co-borrowers' joint income was verified by LC, not verified, or if the income source was verified. Employment length in years. Possible values are between 0 and 10 where 0 means less than one year and 10 means ten or more years. Lastly whether the loan was categorized as good if the loan was fully paid back or currently on-time. 
+
+
+```{r}
+lending_club %>% 
+  count(term = term) %>% 
+  ggplot(aes(x = term, y = n)) +
+  geom_col()
+```
+
+>It seems like there is  a larger amount of loans that have 36 payments than 60 payments. 
+
+
+```{r}
+lending_club %>% 
+  count(state = addr_state) %>% 
+  ggplot(aes(y = state, x = n)) +
+  geom_col()
+```
+
+>There seems to be a large representation of the states California, Georgia, Ohio and Texas. 
+
+
+```{r}
+lending_club %>% 
+  count(grade = sub_grade) %>% 
+  ggplot(aes(x = grade, y = n)) +
+  geom_col()
+```
+
+> There are multiple levels for the grade variable. Levels with the most counts are A1 grade, B5, C1, and B2. The lower grades are less common than the better grades. 
+
+```{r}
+lending_club %>% 
+  count(verif = verification_status) %>% 
+  ggplot(aes(x = verif, y = n)) +
+  geom_col()
+```
+
+>Most loans had their income source verified. However, there doesn't seem to be major differences between any category. 
+
+
+```{r}
+lending_club %>% 
+  count(emp = emp_length) %>% 
+  ggplot(aes(x = emp, y = n)) +
+  geom_col()
+```
+
+>We can see that the most popular employment lenght is 10 years. The remaining employment lenghts are not significantly different. 
+
+
+```{r}
+lending_club %>% 
+  count(class = Class) %>% 
+  ggplot(aes(x = class, y = n)) +
+  geom_col()
+```
+
+>We can see that loans are good on their majority and by a large difference.
+
+```{r}
+lending_club %>% 
+  add_n_miss() %>% 
+  count(n_miss_all)
+```
+> There are no missing values. 
+
 2. Do any data cleaning steps that need to happen before the model is build. For example, you might remove any variables that mean the same thing as the response variable (not sure if that happens here), get rid of rows where all variables have missing values, etc. 
 
 Be sure to add more "bad" Classes. This is not the best solution, but it will work for now. (Should investigate how to appropriately use `step_sample_up()` function from [`themis`](https://github.com/tidymodels/themis)).
+
+
+
 
 ```{r}
 create_more_bad <- lending_club %>% 
@@ -63,13 +175,25 @@ create_more_bad <- lending_club %>%
   sample_n(size = 3000, replace = TRUE)
 
 lending_club_mod <- lending_club %>% 
-  bind_rows(create_more_bad)
+  bind_rows(create_more_bad) %>% 
+  select(-delinq_amnt, -acc_now_delinq)
+
+
+
 ```
 
 3. Split the data into training and test, putting 75\% in the training data.
 
 ```{r}
 set.seed(494) # for reproducibility
+
+lc_split <- initial_split(lending_club_mod, 
+                              prop = .75)
+lc_split
+#<training/testing/total>
+
+lc_training <- training(lc_split)
+lc_testing <- testing(lc_split)
 ```
 
 4. Set up the recipe and the pre-processing steps to build a lasso model. Some steps you should take:
@@ -79,41 +203,435 @@ set.seed(494) # for reproducibility
 * Make categorical variables dummy variables (make sure NOT to do this to the outcome variable).  
 * Normalize quantitative variables.  
 
+
+```{r}
+set.seed(494) #for reproducible 5-fold
+
+lc_recipe <- recipe(Class ~ .,
+                    data = lc_training) %>% 
+  step_mutate_at(funded_amnt, delinq_2yrs,inq_last_6mths, open_il_6m,open_il_12m,open_il_24m, total_bal_il, all_util, inq_fi, inq_last_12m, num_il_tl, total_il_high_credit_limit,
+                 fn = ~as.numeric(.))%>% 
+  step_mutate(sub_grade = as.factor(str_sub(sub_grade,end = 1))) %>% 
+  step_normalize(all_predictors(), 
+                 -all_nominal(),
+                 -has_role(match = "evaluative")) %>% 
+  step_dummy(all_nominal(),
+             -all_outcomes()) 
+
+set.seed(494)
+lc_cv <- vfold_cv(lc_training, v = 5)
+```
+
+
+```{r}
+prep(lc_recipe) %>% 
+  juice()
+```
+
 5. Set up the lasso model and workflow. We will tune the `penalty` parameter.
+
+```{r}
+#define lasso model
+lc_lasso_mod <- 
+  logistic_reg(mixture = 1) %>% 
+  set_engine("glmnet") %>% 
+  set_args(penalty = tune()) %>% 
+  set_mode("classification")
+
+#create workflow
+lc_lasso_wf <- 
+  workflow() %>% 
+  add_recipe(lc_recipe) %>% 
+  add_model(lc_lasso_mod)
+```
+
 
 6. Set up the model tuning for the `penalty` parameter. Be sure to add the `control_stack_grid()` for the `control` argument so we can use these results later when we stack. Find the accuracy and area under the roc curve for the model with the best tuning parameter.  Use 5-fold cv.
 
 ```{r}
-set.seed(494) #for reproducible 5-fold
+# penalty grid - changed to 10 levels
+penalty_grid <- grid_regular(penalty(),
+                             levels = 10)
+
+# add ctrl_grid - assures predictions and workflows are saved
+ctrl_grid <- control_stack_grid()
+
+
+lc_lasso_tune <- 
+  lc_lasso_wf %>% 
+  tune_grid(
+    resamples = lc_cv,
+    grid = penalty_grid,
+    control = ctrl_grid
+    )
+
+metrics_table <- 
+lc_lasso_tune %>% 
+  collect_metrics()
+
+metrics_table %>% 
+  filter(.metric == "accuracy") %>% 
+  arrange(desc(mean))
+
+metrics_table %>% 
+  filter(.metric == "roc_auc") %>% 
+  arrange(desc(mean))
+
 ```
+>The best penalty is different depending on the metric we focus on. 
+
 
 
 7. Set up the recipe and the pre-processing steps to build a random forest model. You shouldn't have to do as many steps. The only step you should need to do is making all integers numeric. 
 
+```{r}
+
+forest_recipe <- 
+  recipe(Class ~ ., data = lc_training) %>% 
+  step_mutate_at(funded_amnt, delinq_2yrs,inq_last_6mths, open_il_6m,open_il_12m,open_il_24m, total_bal_il, all_util, inq_fi, inq_last_12m, num_il_tl, total_il_high_credit_limit,
+                 fn = ~as.numeric(.)) %>% 
+   step_mutate(sub_grade = as.factor(str_sub(sub_grade,end = 1))) 
+```
+
+
 8. Set up the random forest model and workflow. We will tune the `mtry` and `min_n` parameters and set the number of trees, `trees`, to 100 (otherwise the next steps take too long).
+
+```{r}
+#specify the model
+forest_spec <- 
+  rand_forest(mtry = tune(), 
+              min_n = tune(), 
+              trees = 100) %>% 
+  set_mode("classification") %>% 
+  set_engine("ranger")
+
+forest_workflow <- 
+  workflow() %>% 
+  add_recipe(forest_recipe) %>% 
+  add_model(forest_spec) 
+```
+
 
 9. Set up the model tuning for both the `mtry` and `min_n` parameters. Be sure to add the `control_stack_grid()` for the `control` argument so we can use these results later when we stack. Use only 3 levels in the grid. For the `mtry` parameter, you need to put `finalize(mtry(), lending_training %>% select(-Class))` in as an argument instead of just `mtry()`, where `lending_training` is the name of your training data. This is because the `mtry()` grid will otherwise have unknowns in it. This part can take a while to run.
 
+```{r}
+rf_penalty_grid <- 
+  grid_regular(finalize(mtry(),
+                        lc_training %>%
+                          select(-Class)),
+               min_n(),
+               levels = 3)
+
+forest_tune <- 
+  forest_workflow %>% 
+  tune_grid(
+    resamples = lc_cv,
+    grid = rf_penalty_grid,
+    control = control_stack_grid()
+    )
+```
+
+
 10. Find the best tuning parameters. What is the are the accuracy and area under the ROC curve for the model with those tuning parameters?
+
+```{r}
+best_param_rf <- forest_tune %>% 
+  select_best(metric = "accuracy")
+
+best_param_rf
+
+metrics_forest <- 
+forest_tune %>% 
+  collect_metrics()
+
+metrics_forest %>% 
+  filter(.metric == "accuracy") %>% 
+  arrange(desc(.metric))
+
+metrics_forest %>% 
+  filter(.metric == "roc_auc") %>% 
+  arrange(desc(.metric))
+
+
+
+```
+
+>The accuracy is 0.9916000 and the roc_auc is 0.9971213.
+
+
+
+
+##Interpretable Machine learning        
+
+
+
 
 11. Use functions from the `DALEX` and `DALEXtra` libraries to create a histogram and boxplot of the residuals from the training data. How do they look? Any interesting behavior?
 
+
+```{r}
+# choose the best penalty
+best_param <- lc_lasso_tune %>% 
+  select_best(metric = "accuracy")
+
+# finalize workflow
+lc_lasso_final_wf <- lc_lasso_wf %>% 
+  finalize_workflow(best_param)
+
+# fit final model
+lc_lasso_final_mod <- lc_lasso_final_wf %>% 
+  fit(data = lc_training)
+```
+
+
+```{r}
+#finalize workflow with best tunning parameters
+
+forest_final_wf <- forest_workflow %>% 
+  finalize_workflow(best_param_rf)
+forest_final_wf
+
+ranger_fit <- forest_final_wf %>% 
+  fit(lc_training)
+ranger_fit
+
+```
+
+```{r}
+lasso_explain <- 
+  explain_tidymodels(
+    model = lc_lasso_final_mod,
+    data = lc_training %>% select(-Class), 
+    y = lc_training %>%
+      mutate(Class_num = as.integer(Class =="good")) %>%
+      pull(Class_num),
+    label = "lasso"
+  )
+```
+```{r}
+rf_explain <- 
+  explain_tidymodels(
+    model = ranger_fit,
+    data = lc_training %>% select(-Class), 
+    y = lc_training %>%
+      mutate(Class_num = as.integer(Class =="good")) %>%
+      pull(Class_num),
+    label = "rf"
+  )
+```
+
+```{r}
+lasso_mod_perf <- model_performance(lasso_explain)
+rf_mod_perf <-  model_performance(rf_explain)
+lasso_mod_perf
+
+```
+
+```{r}
+rf_mod_perf
+```
+```{r}
+hist_plot <- 
+  plot(lasso_mod_perf,
+       rf_mod_perf, 
+       geom = "histogram")
+box_plot <-
+  plot(lasso_mod_perf,
+       rf_mod_perf, 
+       geom = "boxplot")
+
+hist_plot + box_plot
+```
+
+>The residuals from the LASSO model seem higher than the residuals of the rf model. They both seem to have a normal distribution. For both there seems to be a peak in the same residual value of around 0. In the box plot we can see that the residuals of the forest model clusted around the value of 0, having a maximum value of around 0.3. On the other hand, the LASSO model has residuals distributted in a larger range with a higher maximum value of arounf 0.99. 
+
 12. Use `DALEX` functions to create a variable importance plot from this model. What are the most important variables? 
 
-13. Write a function called `cp_profile` to make a CP profile. The function will take an explainer, a new observation, and a variable name as its arguments and create a CP profile for a quantitative predictor variable. You will need to use the `predict_profile()` function inside the function you create - put the variable name there so the plotting part is easier. You'll also want to use `aes_string()` rather than `aes()` and quote the variables. Use the `cp_profile()` function to create one CP profile of your choosing. Be sure to choose a variable that is numeric, not integer. There seem to be issues with those that I'm looking into.
+```{r}
+set.seed(10) #since we are sampling & permuting, we set a seed so we can replicate the results
+lasso_var_imp <- 
+  model_parts(
+    lasso_explain
+    )
+
+plot(lasso_var_imp, show_boxplots = TRUE)
+```
+
+
+```{r}
+set.seed(10) #since we are sampling & permuting, we set a seed so we can replicate the results
+rf_var_imp <- 
+  model_parts(
+    rf_explain
+    )
+
+plot(rf_var_imp, show_boxplots = TRUE)
+```
+
+>The most important variables for the LASSO model are interest rate, the state of the address used, number of installment accounts opened in past 12 months, the number of personal financial inquiries. The interest rate is by far the more important variable. For the forest model the most important variable is by far the interest rate, followed by the number of installment accounts opened in past 12 months and the amount of credit the borrower is using relative to all available revolving credit. 
+
+
+13. Write a function called `cp_profile` to make a CP profile. 
+The function will take an explainer, a new observation, and a variable name as its arguments and create a CP profile for a quantitative predictor variable. 
+You will need to use the `predict_profile()` function inside the function you create - put the variable name there so the plotting part is easier. 
+You'll also want to use `aes_string()` rather than `aes()` and quote the variables. 
+Use the `cp_profile()` function to create one CP profile of your choosing. 
+Be sure to choose a variable that is numeric, not integer. 
+There seem to be issues with those that I'm looking into.
+
 
 For an extra challenge, write a function that will work for either a quantitative or categorical variable. 
 
 If you need help with function writing check out the [Functions](https://r4ds.had.co.nz/functions.html) chapter of R4DS by Wickham and Grolemund.
 
 
-14. Use `DALEX` functions to create partial dependence plots (with the CP profiles in gray) for the 3-4 most important variables. If the important variables are categorical, you can instead make a CP profile for 3 observations in the dataset and discuss how you could go about constructing a partial dependence plot for a categorical variable (you don't have to code it, but you can if you want an extra challenge). If it ever gives you an error that says, "Error: Can't convert from `VARIABLE` <double> to `VARIABLE` <integer> due to loss of precision", then remove that variable from the list. I seem to have figured out why it's doing that, but I don't know how to fix it yet.
+```{r}
+cp_profile <- function(explainer, obs, var){
+  
+  rf_cpp <- predict_profile(explainer = explainer, 
+                          new_observation = obs,
+                          variables = var) 
+
+  rf_cpp %>% 
+    ggplot(aes_string(x = var,
+               y = "`_yhat_`")) +
+    geom_line() 
+  
+}
+
+cp_profile(rf_explain,lc_training %>% slice(4), "int_rate")
+
+
+```
+
+
+14. Use `DALEX` functions to create partial dependence plots (with the CP profiles in gray) for the 3-4 most important variables. 
+If the important variables are categorical, you can instead make a CP profile for 3 observations in the dataset and discuss how you could go about constructing a partial dependence plot for a categorical variable (you don't have to code it, but you can if you want an extra challenge). 
+If it ever gives you an error that says, "Error: Can't convert from `VARIABLE` <double> to `VARIABLE` <integer> due to loss of precision", then remove that variable from the list. I seem to have figured out why it's doing that, but I don't know how to fix it yet.
+
+```{r}
+set.seed(494) # since we take a sample of 100 obs
+# This takes a while to run. 
+# If we only want to examine a few variables, add variables argument to model_profile.
+# variables = int_rate, open_il_12m, revol_util
+
+
+rf_pdp1 <- model_profile(explainer = rf_explain, variables = "int_rate")
+
+plot(rf_pdp1, 
+     variables = "int_rate",
+     geom = "profiles")
+
+rf_pdp3 <- model_profile(explainer = rf_explain, variables = "revol_util")
+
+plot(rf_pdp3, 
+     variables = "revol_util",
+     geom = "profiles")
+```
 
 15. Fit one more model type of your choosing that will feed into the stacking model. 
 
-16. Create a model stack with the candidate models from the previous parts of the exercise and use the `blend_predictions()` function to find the coefficients of the stacked model. Create a plot examining the performance metrics for the different penalty parameters to assure you have captured the best one. If not, adjust the penalty. (HINT: use the `autoplot()` function). Which models are contributing most?
+```{r}
+# create a model definition
+library(kknn)
+knn_mod <-
+  nearest_neighbor(
+    neighbors = tune("k")
+  ) %>%
+  set_engine("kknn") %>% 
+  set_mode("classification")
 
-17. Fit the final stacked model using `fit_members()`. Apply the model to the test data and report the accuracy and area under the curve. Create a graph of the ROC and construct a confusion matrix. Comment on what you see. Save this final model using the `saveRDS()` function - see the [Use the model](https://advanced-ds-in-r.netlify.app/posts/2021-03-16-ml-review/#use-the-model) section of the `tidymodels` intro. We are going to use the model in the next part. You'll want to save it in the folder where you create your shiny app.
+# create the workflow
+knn_wf <- 
+  workflow() %>% 
+  add_model(knn_mod) %>%
+  add_recipe(lc_recipe)
+
+# tune it using 4 tuning parameters
+knn_tune <- 
+  knn_wf %>% 
+  tune_grid(
+    lc_cv,
+    grid = 4,
+    control = ctrl_grid
+  )
+```
+
+
+16. Create a model stack with the candidate models from the previous parts of the exercise 
+
+and use the `blend_predictions()` function to find the coefficients of the stacked model. 
+
+Create a plot examining the performance metrics for the different penalty parameters to assure you have captured the best one. If not, adjust the penalty. (HINT: use the `autoplot()` function). 
+Which models are contributing most?
+
+
+```{r}
+lc_stack <- 
+  stacks() %>% 
+  add_candidates(forest_tune) %>% 
+  add_candidates(lc_lasso_tune) %>% 
+  add_candidates(knn_tune)
+
+```
+
+```{r}
+lc_blend <- 
+  lc_stack %>% 
+  blend_predictions()
+
+lc_blend %>% 
+  autoplot()
+
+```
+
+```{r}
+lc_blend$metrics %>% 
+  filter(.metric == "accuracy") %>% 
+  arrange(desc(mean))
+lc_blend$metrics %>% 
+  filter(.metric == "roc_auc")%>% 
+  arrange(desc(mean))
+```
+
+> The models that contribute the most are the random forest and the KNN. 
+
+17. Fit the final stacked model using `fit_members()`. 
+Apply the model to the test data and report the accuracy and area under the curve.
+Create a graph of the ROC and construct a confusion matrix. 
+Comment on what you see. 
+Save this final model using the `saveRDS()` function - see the [Use the model](https://advanced-ds-in-r.netlify.app/posts/2021-03-16-ml-review/#use-the-model) section of the `tidymodels` intro. We are going to use the model in the next part. You'll want to save it in the folder where you create your shiny app.
+
+```{r}
+#Fit final stacked model
+lc_final_stack <- lc_blend %>% 
+  fit_members()
+#Apply model to the test data 
+final_stack_table <- lc_final_stack %>% 
+  predict(new_data = lc_testing) %>% 
+  bind_cols((lc_testing))
+
+#Report accuracy and area under the curve
+final_stack_accuracy <- accuracy(final_stack_table, Class,.pred_class)
+final_stack_accuracy
+
+lc_final_stack$metrics %>% 
+  filter(.metric == "roc_auc")
+
+#Graph of the ROC
+lc_final_stack %>% 
+  autoplot()
+
+#Confunsion matrix
+final_stack_table %>% 
+  conf_mat(Class,.pred_class)
+
+```
+
+```{r}
+saveRDS(lc_final_stack, "lc_final_stack.rds")
+```
+
 
 ## Shiny app
 
@@ -128,21 +646,236 @@ You are going to create an app that allows a user to explore how the predicted p
 Specifically, you will do the following:
 
 * Set up a separate project and GitHub repo for this app. Make sure the saved model from the previous problem is also in that folder. The app needs to be created in a file called *exactly* app.R that is also in the project folder.   
+
+
 * At the top of the file, load any libraries you use in the app.  
 * Use the `readRDS()` function to load the model.  
 * You may want to load some of the data to use
 * Create a user interface (using the various `*Input()` functions) where someone could enter values for each variable that feeds into the model. You will want to think hard about which types of `*Input()` functions to use. Think about how you can best prevent mistakes (eg. entering free text could lead to many mistakes). 
+
 * Another part of the user interface will allow them to choose a variable (you can limit this to only the quantitative variables) where they can explore the effects of changing that variable, holding all others constant.  
+
+
+
 * After the user has entered all the required values, the output will be a CP profile with the the predicted value for the data that was entered, indicated by a point. I don't think the functions from `DALEX` and `DALEXtra` will work with a stacked model, so you'll likely have to (get to) do some of your own coding. 
 * Use the `bslib` to theme your shiny app!  
 * Publish your app to [shinyapps.io](https://www.shinyapps.io/). There are instructions for doing that on the tutorial I linked to above.   
 * Write a paragraph or two describing your app on your website! Link to the app and your GitHub repository in your post. Include a link to your post here. 
 
+```{r}
+#I couldn't get to deplot the app, but this is the progress I made
+# library(shiny)
+# library(tidyverse)
+# library(tidymodels)        # for modeling
+# library(stacks)            # for stacking models
+# library(lubridate)         # for date manipulation
+# library(modeldata)
+# library(ranger)
+# library(glmnet)
+# library(rpart)
+# 
+# 
+# data("lending_club") 
+# 
+# lending_club <- lending_club %>% 
+#   mutate(funded_amnt =as.numeric(funded_amnt), 
+#          delinq_2yrs = as.numeric(delinq_2yrs),
+#          inq_last_6mths = as.numeric(inq_last_6mths),
+#          open_il_6m = as.numeric(open_il_6m),
+#          open_il_12m = as.numeric(open_il_12m),
+#          open_il_24m = as.numeric(open_il_24m),
+#          total_bal_il = as.numeric(total_bal_il),
+#          all_util = as.numeric(all_util),
+#          inq_fi = as.numeric(inq_fi),
+#          inq_last_12m = as.numeric(inq_last_12m),
+#          num_il_tl = as.numeric(num_il_tl),
+#          total_il_high_credit_limit = as.numeric(total_il_high_credit_limit))
+# 
+# lc_final_read <- readRDS("lc_final_stack.rds")
+# 
+# 
+# ui <- fluidPage(sliderInput(inputId = "funded_amnt",
+#                             label = "Amount of Loan", 
+#                             min = min(lending_club$funded_amnt),
+#                             max = max(lending_club$funded_amnt),
+#                             value = min(lending_club$funded_amnt)),
+#                 sliderInput(inputId = "int_rate",
+#                             label = "Interest Rate", 
+#                             min = min(lending_club$int_rate),
+#                             max = max(lending_club$int_rate),
+#                             value = c(min(lending_club$int_rate)),
+#                             sep = ""),
+#                 selectInput(inputId = "term",
+#                             label = "Payments on the Loan",
+#                             choices = list(`36 Terms` = "term_36",
+#                                            `60 Terms` = "term_60")),
+#                 selectInput(inputId = "sub_grade",
+#                             label = "Assigned Subgrade",
+#                             choices = list("A1","A2","A3","A4","B1","B2","B3","B4",
+#                                            "C1","C2","C3","C4","D1","D2","D3","D4",
+#                                            "E1","E2","E3","E4")),
+#                 selectInput(inputId = "addr_state",
+#                             label = "State of address",
+#                             choices = list("NY","CA","TX","FL","WA","MI","NJ","AZ","PA","AK","MA","OH",
+#                                            "GA","MN","HI","IL","CO","NC","VA","AL","OR","IN","MD","MO",
+#                                            "TN","WI","MT","SC","ME","UT","CT","MS","WY","IA","LA","KY","NV","RI",
+#                                            "AR","NM","ID","DE","NE","KS","VT","NH","SD","OK","WV","ND")),
+#                 selectInput(inputId = "verification_status",
+#                             label = "Verification Status",
+#                             choices = list(`Verified` = "Verified",
+#                                            `Not verified` = "Non_Verified",
+#                                            `Source Verified`="Source_Verified")),
+#                 sliderInput(inputId = "delinq_2yrs",
+#                             label = "Delinquency in credit last 2 years", 
+#                             min = min(lending_club$delinq_2yrs),
+#                             max = max(lending_club$delinq_2yrs),
+#                             value = c(min(lending_club$delinq_2yrs))),
+#                 sliderInput(inputId = "annual_inc",
+#                             label = "Annual Income", 
+#                             min = min(lending_club$annual_inc),
+#                             max = max(lending_club$annual_inc),
+#                             value = c(min(lending_club$annual_inc))),
+#                 selectInput(inputId = "emp_lenght",
+#                             label = "Employment Length",
+#                             choices = list("emp_1",
+#                                            "emp_6",
+#                                            "emp_lt_1", "emp_ge_10", "emp_2","emp_3", "emp_4",
+#                                            "emp_5","emp_6","emp_7", "emp_8","emp_9","emp_unk")),
+#                 sliderInput(inputId = "delinq_2yrs",
+#                             label = "Number of 30+ days past-due incidences of delinquency in the borrower's credit file for the past 2 years", 
+#                             min = min(lending_club$delinq_2yrs),
+#                             max = max(lending_club$delinq_2yrs),
+#                             value = c(min(lending_club$delinq_2yrs))),
+#                 sliderInput(inputId = "inq_last_6mths",
+#                             label = "Number of inquiries in last 6 months (excluding auto and mortgage inquiries)", 
+#                             min = min(lending_club$inq_last_6mths),
+#                             max = max(lending_club$inq_last_6mths),
+#                             value = c(min(lending_club$inq_last_6mths))),
+#                 sliderInput(inputId = "revol_util",
+#                             label = "Amount of credit the borrower is using relative to all available revolving credit", 
+#                             min = min(lending_club$revol_util),
+#                             max = max(lending_club$revol_util),
+#                             value = c(min(lending_club$revol_util))),
+#                 sliderInput(inputId = "open_il_6m",
+#                             label = "Number of inquiries in last 6 months", 
+#                             min = min(lending_club$open_il_6m),
+#                             max = max(lending_club$open_il_6m),
+#                             value = c(min(lending_club$open_il_6m))),
+#                 sliderInput(inputId = "open_il_12m",
+#                             label = "Number of inquiries in last 12 months", 
+#                             min = min(lending_club$open_il_12m),
+#                             max = max(lending_club$open_il_12m),
+#                             value = c(min(lending_club$open_il_12m))),
+#                 sliderInput(inputId = "open_il_24m",
+#                             label = "Number of installment accounts opened in past 24 months", 
+#                             min = min(lending_club$open_il_24m),
+#                             max = max(lending_club$open_il_24m),
+#                             value = c(min(lending_club$open_il_24m))),
+#                 sliderInput(inputId = "total_bal_il",
+#                             label = "Total current balance of all installment accounts", 
+#                             min = min(lending_club$total_bal_il),
+#                             max = max(lending_club$total_bal_il),
+#                             value = c(min(lending_club$total_bal_il))),
+#                 sliderInput(inputId = "all_util",
+#                             label = "Balance to credit limit on all trades", 
+#                             min = min(lending_club$all_util),
+#                             max = max(lending_club$all_util),
+#                             value = c(min(lending_club$all_util))),
+#                 sliderInput(inputId = "inq_fi",
+#                             label = "Number of personal finance inquiries", 
+#                             min = min(lending_club$inq_fi),
+#                             max = max(lending_club$inq_fi),
+#                             value = c(min(lending_club$inq_fi))),
+#                 sliderInput(inputId = "inq_last_12m",
+#                             label = "Number of credit inquiries in past 12 months", 
+#                             min = min(lending_club$inq_last_12m),
+#                             max = max(lending_club$inq_last_12m),
+#                             value = c(min(lending_club$inq_last_12m))),
+#                 sliderInput(inputId = "num_il_tl",
+#                             label = "Number of installment accounts", 
+#                             min = min(lending_club$inq_last_12m),
+#                             max = max(lending_club$inq_last_12m),
+#                             value = c(min(lending_club$inq_last_12m))),
+#                 sliderInput(inputId = "total_il_high_credit_limit",
+#                             label = "Total installment high credit/credit limit", 
+#                             min = min(lending_club$total_il_high_credit_limit),
+#                             max = max(lending_club$total_il_high_credit_limit),
+#                             value = c(min(lending_club$total_il_high_credit_limit))),
+#                 plotOutput(outputId = "distPlot")
+#                 
+#                 
+#                 
+# )
+# 
+# server <- function(input, output) {
+#   
+#   output$distPlot <- renderPlot({
+#     
+#     obs4 <- lending_club %>% 
+#       slice(4) %>% 
+#       mutate(funded_amnt = input$funded_amnt,
+#              int_rate = input$int_rate,
+#              term = input$term,
+#              sub_grade = input$sub_grade,
+#              addr_state = input$addr_state,
+#              verification_status = input$verification_status,
+#              delinq_2yrs = input$delinq_2yrs,
+#              annual_inc = input$annual_inc,
+#              emp_lenght = input$emp_lenght,
+#              delinq_2yrs = input$delinq_2yrs,
+#              inq_last_6mths = input$inq_last_6mths,
+#              revol_util = input$revol_util,
+#              open_il_6m = input$open_il_6m,
+#              open_il_12m = input$open_il_12m,
+#              open_il_24m = input$open_il_24m,
+#              total_bal_il = input$total_bal_il,
+#              all_util = input$all_util,
+#              inq_fi = input$inq_fi,
+#              inq_last_12m = input$inq_last_12m,
+#              num_il_tl = input$num_il_tl,
+#              total_il_high_credit_limit = input$total_il_high_credit_limit)
+#              
+#              
+#              
+#              
+#     
+#     min_inc <- min(lending_club$annual_inc)
+#     max_inc <- max(lending_club$annual_inc)
+#     
+#     obs_many <- obs4 %>% 
+#       sample_n(size = 50, replace = TRUE) %>% 
+#       select(-annual_inc) %>% 
+#       mutate(annual_inc = seq(min_inc,max_inc, length.out = 50))
+#     
+#     obs_many %>% 
+#       bind_cols(
+#         predict(lc_final_read,
+#                 new_data = obs_many)
+#       ) %>% 
+#       ggplot(aes(x = int_rate, 
+#                  y = .pred))+
+#       geom_line()
+#                
+#     
+#     
+#     
+#     
+#   })
+#   
+# }
+# shinyApp(ui = ui, server = server)
+```
+
+
 
 ## Coded Bias
 
-Watch the [Code Bias](https://www.pbs.org/independentlens/films/coded-bias/) film and write a short reflection. If you want some prompts, reflect on: What part of the film impacted you the most? Was there a part that surprised you and why? What emotions did you experience while watching?
+Watch the [Code Bias](https://www.pbs.org/independentlens/films/coded-bias/) film and write a short reflection. If you want some prompts, reflect on:
+What part of the film impacted you the most? 
+Was there a part that surprised you and why? 
+What emotions did you experience while watching?
 
+>I was impacted by Police using facial recognition in the UK without any legal permission and arresting people for covering their faces. I was also impacted by the automated job selection process. Currently I am applying for internships and I wonder if any of the firms I applied to uses any machine learning algorythms to select their candidates. I was very surprised when they mentioned the case of the nuclear attack detected by Russian monitors. Like the narrator mentioned, automatization can take inhuman decisions. I was frustrated by the idea of tools that I enjoy learning about can be used to perpetuate abuse. People who own the code deploy their power to other people. Also by how oour view of the world is framed by technology, including multiple ideas that are problematic. It seems like people with the money and power to control media can constraing our agency. The can even define our destiny and future based on algorythms. 
 
 REMEMBER TO ADD YOUR GITHUB LINK AT THE TOP OF THE PAGE AND UNCOMMENT THE `knitr` OPTIONS.
 
